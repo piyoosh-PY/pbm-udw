@@ -1,0 +1,23 @@
+version : 2
+models :
+  - name : stg_pharmacy_claims
+    description :   NCPDP-style transactions as received. Grain = one row per transaction in the file (duplicates possible).
+    columns :
+      - name : transaction_id
+        data_tests :
+          - not_null
+          - unique:
+              config:
+                severity : warn
+      
+      - name : transaction_code
+        data_tests :
+          - accepted_values :
+              arguments :
+                values : ['B1','B2','B3']
+      
+      - name : response_status
+        data_tests :
+          - accepted_values :
+              arguments :
+                  values : ['P','R']

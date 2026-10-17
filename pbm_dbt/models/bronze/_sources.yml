@@ -1,0 +1,20 @@
+version: 2
+sources:
+  - name: raw
+    description: Landing zone. One folder per feed, Hive-partitioned by load_date. Read as text, losslessly.
+    config:
+      external_location: "read_csv('{{ var('raw_root') }}/{name}/load_date=*/*.csv', all_varchar=true, hive_partitioning=true, filename=true)"
+    tables:
+      - name: pharmacy_claims
+        loaded_at_field: "cast(file_loaded_at as timestamp)"
+        config:
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 48, period: hour}
+        columns:
+          - name: transaction_id
+            data_tests: [not_null]
+      - name: eligibility
+      - name: drug_reference
+      - name: providers
+      - name: rebates
