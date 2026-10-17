@@ -1,0 +1,60 @@
+version : 2
+models :
+  - name : int_pharmacy_claims__typed
+    description: One row per transaction (exact duplicates removed), typed and repaired, with dq_ flags and quarantine reasons.
+    columns :
+      - name : transaction_id
+        data_tests : [not_null,unique]
+      
+      - name : transaction_code
+        data_tests :
+          - accepted_values:
+              arguments :
+                values : ['B1','B2','B3']
+  
+  - name : int_pharmacy_fills
+    description: Netted fills. Grain = one row per final paid fill (fill_key). Reversed fills are absent; rebills carry corrected values.
+    columns :
+
+      - name : fill_key
+        data_tests : [not_null, unique]
+      
+      - name : final_transaction_code
+        data_tests :
+          - accepted_values :
+              arguments :
+                values : ['B1','B3']
+      
+      - name : ndc11
+        data_tests :
+          - not_null
+        
+      - name : member_key
+        data_tests :
+          - relationships:
+              arguments :
+                to : ref ('int_eligibility')
+                field : member_key
+              config  :
+                severity : warn # soft rule: eligibility can arrive after the claim
+
+  - name: int_eligibility
+    description: One current record per member (latest wins).
+      
+    columns:
+      - name: member_key
+        data_tests: [not_null, unique]
+      
+      - name: date_of_birth
+        data_tests: [not_null]  
+
+  - name: int_providers
+    description: One golden record per NPI.
+    columns:
+      - name: npi
+        data_tests: [not_null, unique]
+
+  - name: int_drugs
+    columns:
+      - name: ndc11
+        data_tests: [not_null, unique]
