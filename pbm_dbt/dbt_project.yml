@@ -1,0 +1,26 @@
+name: 'pbm_dbt'
+version: '1.0.0'
+profile: 'pbm_dbt'
+
+model-paths: ["models"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+analysis-paths: ["analyses"]
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  raw_root: "../data/raw"      # landing zone; becomes s3://... in Class 6
+
+models:
+  pbm_dbt:
+    bronze:
+      +materialized: view
+      +schema: bronze
+    silver:
+      +materialized: table
+      +schema: silver
+    gold:
+      +materialized: table
+      +schema: gold

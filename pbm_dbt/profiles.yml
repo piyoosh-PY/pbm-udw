@@ -1,0 +1,7 @@
+pbm_dbt:
+  target : dev
+  outputs:
+    dev:
+      type : duckdb
+      path : "{{env_var('PBM_DUCKDB_PATH','../warehouse/pbm_dev.duckdb')}}"
+      threads : 4
