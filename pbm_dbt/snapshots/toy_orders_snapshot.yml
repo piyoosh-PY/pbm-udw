@@ -1,0 +1,10 @@
+snapshots :
+  - name : toy_orders_snapshot
+    relation : ref ('toy_orders')
+    config :
+        tags : [playground]
+        schema : playground
+        unique_key : order_id
+        strategy : timestamp 
+        updated_at : updated_at
+        hard_deletes : invalidate  # if a row disappears from the source, close its current version

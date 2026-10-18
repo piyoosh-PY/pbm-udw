@@ -18,6 +18,7 @@ select
     trim(coverage_start_date)     as coverage_start_date,
     trim(coverage_end_date)       as coverage_end_date,
     trim(maintenance_type_code)   as maintenance_type_code,
+    trim(maintenance_effective_date) as maintenance_effective_date,   -- added by the source (schema evolution)
     load_date                     as _load_date,
     filename                      as _source_file,
     file_loaded_at                as _file_loaded_at

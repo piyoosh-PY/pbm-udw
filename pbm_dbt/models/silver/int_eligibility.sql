@@ -17,6 +17,7 @@ with typed as (
         try_cast(coverage_start_date as date)                  as coverage_start_date,
         try_cast(nullif(coverage_end_date, '') as date)        as coverage_end_date,
         maintenance_type_code,
+        try_cast(maintenance_effective_date as date)           as maintenance_effective_date,
         cast(_file_loaded_at as timestamp)                     as _file_loaded_at,
         _load_date
     from {{ ref('stg_eligibility') }}
@@ -24,7 +25,8 @@ with typed as (
 
 select
     *,
-    coalesce(coverage_end_date < coverage_start_date, false)   as dq_coverage_end_before_start,
+    coalesce(coverage_end_date = coverage_start_date - 1, false)   as is_never_effective,
+    coalesce(coverage_end_date < coverage_start_date - 1, false)   as dq_coverage_end_before_start,
     zip_code is null                                           as dq_missing_zip
 from typed
 qualify row_number() over (

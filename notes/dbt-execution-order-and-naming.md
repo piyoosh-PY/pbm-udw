@@ -54,7 +54,7 @@ Macros load first because models, tests and YAML all call them. dbt loads:
 - **built-in dbt macros** (`ref`, `source`, `config`, `is_incremental`, materializations like `table`/`view`/`incremental`, the generic tests `not_null`/`unique`/...)
 - **adapter macros** (dbt-duckdb's versions of `create_table_as` and so on)
 - **package macros**
-- **your macros** (`macros/cleaning.sql`, `macros/generate_schema_name.sql`)
+- **your macros** (`macros/cleaning.sql`)
 
 On our project dbt reports **505 macros (verified)** even though we wrote five. Nearly everything dbt does is a macro you can read and override.
 
@@ -64,7 +64,7 @@ On our project dbt reports **505 macros (verified)** even though we wrote five. 
 3. the adapter-specific version (`duckdb__create_table_as`), which wins over
 4. dbt's default (`default__create_table_as`)
 
-That's how our `generate_schema_name` replaced dbt's built-in one: same name, defined in our project, so ours wins. dbt picks the adapter version through `adapter.dispatch()`, which is why many built-ins come in `default__x` / `duckdb__x` / `snowflake__x` variants.
+That's how you'd customize schema naming: we use dbt's built-in `generate_schema_name` (target schema `main` + custom `silver` = `main_silver`). If you put a macro with the same name in `macros/`, yours wins, and that's the standard way teams make prod write to plain `silver` while dev writes to `dbt_piyoosh_silver`. dbt picks the adapter version through `adapter.dispatch()`, which is why many built-ins come in `default__x` / `duckdb__x` / `snowflake__x` variants.
 
 ### Step 5. Read every resource file
 dbt walks each configured path and creates one **node** per resource:

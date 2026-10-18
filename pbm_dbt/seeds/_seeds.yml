@@ -1,0 +1,7 @@
+seeds:
+  - name: toy_orders
+    description: "Toy source system: the CURRENT state of an orders table, re-sent in full every 'day' (you edit this file between runs)."
+    config:
+      tags: [playground]
+      schema: playground
+      column_types: {order_id: integer, amount: integer, updated_at: timestamp}

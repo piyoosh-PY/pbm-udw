@@ -1,0 +1,12 @@
+snapshots:
+  - name : snap_member_eligibility
+    relation : ref ('int_eligibility')
+    description : >
+          SCD Type 2 history of each member's coverage, as the warehouse saw it on each run.
+          dbt_valid_from / dbt_valid_to are SYSTEM time (when we learned it), not when the coverage was effective.
+    config :
+      schema : snapshots
+      unique_key : member_key
+      strategy: check                 # full-file 834: every row has a new load timestamp, so 'timestamp' would version everyone daily
+      check_cols: [client_id, group_id, plan_id, coverage_start_date, coverage_end_date]
+      dbt_valid_to_current: "cast('9999-12-31' as timestamp)"   # open rows get a far-future date instead of NULL

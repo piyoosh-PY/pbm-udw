@@ -1,9 +1,23 @@
-
 -- Silver step 1: one row per transaction (exact duplicates removed), typed, repaired, and checked.
 -- Grain: transaction_id. Every data-quality rule becomes a dq_ column so nothing is dropped silently.
+-- Incremental: each run processes (a) files from the last N load dates and (b) rows still carrying a soft flag
+-- that may have resolved (late eligibility / late drug file). MERGE on transaction_id makes reruns idempotent.
+{{
+    config(
+        materialized='incremental',
+        incremental_strategy='merge',
+        unique_key='transaction_id',
+        on_schema_change='fail'
+    )
+}}
+
 with deduped as (
     select *
     from {{ ref('stg_pharmacy_claims') }}
+    {% if is_incremental() %}
+    where cast(_load_date as date) >= (select max(cast(_load_date as date)) from {{ this }}) - {{ var('claims_lookback_days', 1) }}
+       or transaction_id in (select transaction_id from {{ this }} where dq_orphan_member or dq_ndc_not_in_reference)
+    {% endif %}
     qualify row_number() over (
         partition by transaction_id
         order by _file_loaded_at desc, _source_file desc
@@ -36,7 +50,8 @@ typed as (
         try_cast(submitted_at as timestamp)           as submitted_at,
         _load_date,
         _source_file,
-        cast(_file_loaded_at as timestamp)            as _file_loaded_at
+        cast(_file_loaded_at as timestamp)            as _file_loaded_at,
+        current_timestamp                             as _processed_at   -- when THIS run touched the row; downstream uses it as a watermark
     from deduped
 ),
 checked as (

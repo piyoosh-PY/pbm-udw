@@ -1,7 +1,8 @@
 -- Defect coverage: for every claims defect the generator injected, silver must show the expected effect.
 -- The manifest is our "golden answer". Passes when it returns zero rows.
 with manifest as (
-    select defects from read_json('{{ var("raw_root") }}/_manifest/load_date=*/defects.json')
+        -- union_by_name: later loads add new defect types, so manifests don't all have the same keys
+    select defects from read_json('{{ var("raw_root") }}/_manifest/load_date=*/defects.json', union_by_name=true)
 ),
 
 expected as (
@@ -10,9 +11,11 @@ expected as (
     union all select 'bad days supply quarantined',     sum(defects.days_supply_out_of_range.count)                   from manifest
     union all select '10-digit NDCs normalized',        sum(defects.ndc_10_digit_hyphenated.count)                    from manifest
     union all select 'dollar amounts repaired',         sum(defects.amount_with_dollar_sign.count)                    from manifest
-    union all select 'fills reversed (not rebilled)',   sum(defects.reversal_b2.count) - sum(defects.rebill_b3.count) from manifest
+    union all select 'fills reversed (not rebilled)',   sum(defects.reversal_b2.count) - sum(defects.rebill_b3.count)
+                                                        + coalesce(sum(defects.late_reversal_prior_load.count), 0) from manifest
     union all select 'fills rebilled',                  sum(defects.rebill_b3.count)                                  from manifest
-    union all select 'orphan members flagged',          sum(defects.orphan_member.count)                              from manifest
+    union all select 'orphan members flagged',          sum(defects.orphan_member.count)
+                                                        - coalesce(sum(defects.late_eligibility_prior_orphan.count), 0) from manifest
     union all select 'invalid prescriber NPIs flagged', sum(defects.invalid_prescriber_npi.count)                     from manifest
     union all select 'unknown NDCs flagged',            sum(defects.ndc_not_in_drug_reference.count)                  from manifest
 ),
@@ -29,10 +32,7 @@ actual as (
     union all select 'dollar amounts repaired',         count(*) from typed
                                                         where ingredient_cost_paid is not null
                                                           and transaction_id in (select transaction_id from bronze where ingredient_cost_paid like '$%')
-    union all select 'fills reversed (not rebilled)',   count(*) from (
-                                                            select fill_key from typed where not is_quarantined
-                                                            qualify row_number() over (partition by fill_key order by submitted_at desc, transaction_id desc) = 1
-                                                                and transaction_code = 'B2')
+    union all select 'fills reversed (not rebilled)',   count(*) from fills where fill_status = 'reversed'
     union all select 'fills rebilled',                  count(*) from fills where was_rebilled
     union all select 'orphan members flagged',          count(*) from typed where dq_orphan_member
     union all select 'invalid prescriber NPIs flagged', count(*) from typed where dq_invalid_prescriber_npi

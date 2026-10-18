@@ -14,7 +14,12 @@ Standard library only, deterministic for a given --seed and --load-date.
 
 Usage:
   python generator/generate_pbm_data.py --load-date 2026-09-30
-  python generator/generate_pbm_data.py --load-date 2026-10-01 --late-reversals   (Class 3: incremental + late data)
+  python generator/generate_pbm_data.py --load-date 2026-10-01 --late-reversals --claims 3000 --window-days 3   (Class 3)
+
+Later loads (when an earlier eligibility load exists) behave like a full-file 834 feed that evolves:
+  - the roster starts from the previous load's current state (unchanged members are re-sent as 030 audit records)
+  - retro plan changes (001), retro terminations (024), new adds (021),
+    and late eligibility for cardholders that were orphans in the previous claims file
 """
 import argparse
 import csv
@@ -106,12 +111,67 @@ def write_csv(path: Path, rows, fields):
         w.writerows(rows)
 
 
+def evolve_eligibility(prev_dir: Path, load_date: date, loaded_at: datetime, rng, n_base_members: int, flag):
+    """Next full-file 834 roster: the previous load's current state plus this load's business changes."""
+    with (prev_dir / "eligibility.csv").open() as f:
+        prev_rows = list(csv.DictReader(f))
+    state = {}
+    for r in sorted(prev_rows, key=lambda r: r["file_loaded_at"]):  # latest record per member wins
+        state[(r["cardholder_id"], r["person_code"])] = dict(r, maintenance_type_code="030", file_loaded_at=loaded_at.isoformat())
+
+    active = sorted(k for k, r in state.items() if r["coverage_end_date"] == "" and r["coverage_start_date"] <= load_date.isoformat())
+    changed = rng.sample(active, 40)
+    for k in changed[:25]:  # retro plan change, effective 16 days before the file arrives
+        r = state[k]
+        eff = (load_date - timedelta(days=16)).isoformat()
+        r.update(plan_id=rng.choice([p for p in PLANS if p != r["plan_id"]]), maintenance_type_code="001", maintenance_effective_date=eff)
+        flag("retro_plan_change", "-".join(k), "eligibility", f"Plan change (001) effective {eff}, received {load_date}")
+    for k in changed[25:]:  # retro termination, effective 11 days before the file arrives
+        r = state[k]
+        end = (load_date - timedelta(days=11)).isoformat()
+        r.update(coverage_end_date=end, maintenance_type_code="024", maintenance_effective_date=end)
+        flag("retro_termination", "-".join(k), "eligibility", f"Termination (024) effective {end}, received {load_date}")
+
+    def new_member(cardholder, person_code, start):
+        client_id, _ = CLIENTS[rng.randrange(len(CLIENTS))]
+        return {"cardholder_id": cardholder, "person_code": person_code, "relationship_code": "18",
+                "first_name": rng.choice(FIRST), "last_name": rng.choice(LAST),
+                "date_of_birth": date(rng.randint(1950, 2005), rng.randint(1, 12), rng.randint(1, 28)).isoformat(),
+                "gender": rng.choice(["M", "F"]), "zip_code": f"{rng.randint(20000, 29999)}", "client_id": client_id,
+                "group_id": f"{client_id}-G1", "plan_id": rng.choice(PLANS), "coverage_start_date": start,
+                "coverage_end_date": "", "maintenance_type_code": "021", "maintenance_effective_date": start,
+                "file_loaded_at": loaded_at.isoformat()}
+
+    next_id = 100000 + n_base_members + sum(1 for ch, _ in state if ch.startswith("RW1") and int(ch[2:]) >= 100000 + n_base_members)
+    for i in range(30):  # brand-new members starting on the load date
+        r = new_member(f"RW{next_id + i}", "01", load_date.isoformat())
+        state[(r["cardholder_id"], "01")] = r
+        flag("new_member_add", f"{r['cardholder_id']}-01", "eligibility", "New member (021) starting on the load date")
+
+    prev_claims = prev_dir.parent.parent / "pharmacy_claims" / prev_dir.name / "claims.csv"
+    if prev_claims.exists():  # eligibility finally arrives for members whose claims were orphans last load
+        with prev_claims.open() as f:
+            orphans = sorted({(r["cardholder_id"], r["person_code"]) for r in csv.DictReader(f)} - set(state))
+        start = (load_date - timedelta(days=30)).replace(day=1).isoformat()
+        for ch, pc in rng.sample(orphans, min(10, len(orphans))):
+            state[(ch, pc)] = new_member(ch, pc, start)
+            flag("late_eligibility_prior_orphan", f"{ch}-{pc}", "eligibility",
+                 "Member whose claims were orphans in the previous load now appears in eligibility (retro add)")
+
+    rows = list(state.values())
+    for r in rng.sample(rows, 25):
+        rows.append(dict(r))
+        flag("duplicate_eligibility_record", f"{r['cardholder_id']}-{r['person_code']}", "eligibility", "Exact duplicate row in the 834 file")
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--load-date", required=True, help="YYYY-MM-DD; claims cover the 30 days before it")
     ap.add_argument("--members", type=int, default=2000)
     ap.add_argument("--claims", type=int, default=20000)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--window-days", type=int, default=30, help="claims have dates of service in the N days before the load")
     ap.add_argument("--late-reversals", action="store_true",
                     help="also emit B2 reversals for claims filled in earlier loads (late-arriving data)")
     args = ap.parse_args()
@@ -168,7 +228,8 @@ def main():
              "gender": base_rng.choice(["M", "F"]), "zip_code": f"{base_rng.randint(20000, 29999)}",
              "client_id": client_id, "group_id": f"{client_id}-G1", "plan_id": base_rng.choice(PLANS),
              "coverage_start_date": start.isoformat(), "coverage_end_date": end,
-             "maintenance_type_code": "021", "file_loaded_at": loaded_at.isoformat()}
+             "maintenance_type_code": "021", "maintenance_effective_date": start.isoformat(),
+             "file_loaded_at": loaded_at.isoformat()}
         members.append(m)
         elig_rows.append(dict(m))
         if base_rng.random() < 0.35:  # spouse / child, same cardholder, different person code
@@ -178,34 +239,40 @@ def main():
             members.append(dep)
             elig_rows.append(dict(dep))
 
-    for r in rng.sample(elig_rows, 40):  # dirty formatting
-        r["date_of_birth"] = datetime.fromisoformat(r["date_of_birth"]).strftime("%m/%d/%Y")
-        flag("dob_in_mmddyyyy_format", f"{r['cardholder_id']}-{r['person_code']}", "eligibility", "DOB sent as MM/DD/YYYY instead of ISO")
-    for r in rng.sample(elig_rows, 30):
-        r["first_name"] = f"  {r['first_name'].upper()} "
-        r["last_name"] = r["last_name"].lower()
-        flag("name_case_and_whitespace", f"{r['cardholder_id']}-{r['person_code']}", "eligibility", "Names with stray spaces and mixed case")
-    for r in rng.sample(elig_rows, 15):
-        r["zip_code"] = ""
-        flag("missing_zip", f"{r['cardholder_id']}-{r['person_code']}", "eligibility", "Blank ZIP code")
-    for r in rng.sample(elig_rows, 8):
-        r["coverage_end_date"] = (date.fromisoformat(r["coverage_start_date"]) - timedelta(days=15)).isoformat()
-        flag("coverage_end_before_start", f"{r['cardholder_id']}-{r['person_code']}", "eligibility", "Coverage end date earlier than start date")
-    for r in rng.sample(elig_rows, 25):  # same record sent twice in the file
-        elig_rows.append(dict(r))
-        flag("duplicate_eligibility_record", f"{r['cardholder_id']}-{r['person_code']}", "eligibility", "Exact duplicate row in the 834 file")
-    for r in rng.sample(elig_rows, 20):  # a later change record for the same member (plan change)
-        chg = dict(r, plan_id=rng.choice([p for p in PLANS if p != r["plan_id"]]), maintenance_type_code="001",
-                   file_loaded_at=(loaded_at + timedelta(minutes=30)).isoformat())
-        elig_rows.append(chg)
-        flag("member_plan_change_same_file", f"{r['cardholder_id']}-{r['person_code']}", "eligibility",
-             "Change record (001) for a member already in the file; latest record should win")
+    prev_elig = sorted(p for p in (RAW / "eligibility").glob("load_date=*") if p.name < f"load_date={load_date.isoformat()}")
+    if not prev_elig:  # first load: the dirty roster from Class 1
+        for r in rng.sample(elig_rows, 40):  # dirty formatting
+            r["date_of_birth"] = datetime.fromisoformat(r["date_of_birth"]).strftime("%m/%d/%Y")
+            flag("dob_in_mmddyyyy_format", f"{r['cardholder_id']}-{r['person_code']}", "eligibility", "DOB sent as MM/DD/YYYY instead of ISO")
+        for r in rng.sample(elig_rows, 30):
+            r["first_name"] = f"  {r['first_name'].upper()} "
+            r["last_name"] = r["last_name"].lower()
+            flag("name_case_and_whitespace", f"{r['cardholder_id']}-{r['person_code']}", "eligibility", "Names with stray spaces and mixed case")
+        for r in rng.sample(elig_rows, 15):
+            r["zip_code"] = ""
+            flag("missing_zip", f"{r['cardholder_id']}-{r['person_code']}", "eligibility", "Blank ZIP code")
+        for r in rng.sample(elig_rows, 8):
+            r["coverage_end_date"] = (date.fromisoformat(r["coverage_start_date"]) - timedelta(days=15)).isoformat()
+            flag("coverage_end_before_start", f"{r['cardholder_id']}-{r['person_code']}", "eligibility", "Coverage end date earlier than start date")
+        for r in rng.sample(elig_rows, 25):  # same record sent twice in the file
+            elig_rows.append(dict(r))
+            flag("duplicate_eligibility_record", f"{r['cardholder_id']}-{r['person_code']}", "eligibility", "Exact duplicate row in the 834 file")
+        for r in rng.sample(elig_rows, 20):  # a later change record for the same member (plan change)
+            chg = dict(r, plan_id=rng.choice([p for p in PLANS if p != r["plan_id"]]), maintenance_type_code="001",
+                       maintenance_effective_date=load_date.replace(day=1).isoformat(),
+                       file_loaded_at=(loaded_at + timedelta(minutes=30)).isoformat())
+            elig_rows.append(chg)
+            flag("member_plan_change_same_file", f"{r['cardholder_id']}-{r['person_code']}", "eligibility",
+                 "Change record (001) for a member already in the file; latest record should win")
+
+    else:  # later load: evolve the previous roster (full-file 834 feed)
+        elig_rows = evolve_eligibility(prev_elig[-1], load_date, loaded_at, rng, args.members, flag)
 
     elig_fields = list(members[0].keys())
 
     # ---------- pharmacy claims (NCPDP-style transactions) ----------
     claim_rows, txn = [], 0
-    window_start = load_date - timedelta(days=30)
+    window_start = load_date - timedelta(days=args.window_days)
 
     def new_txn_id():
         nonlocal txn
@@ -227,7 +294,7 @@ def main():
         days_supply = rng.choice([30, 30, 30, 90]) if drug["is_specialty"] == "false" else 28
         qty = days_supply if "Pen" not in drug["drug_name"] else rng.choice([1, 2, 4])
         ing, fee, copay, plan_paid = price(drug, qty)
-        dos = window_start + timedelta(days=rng.randint(0, 29))
+        dos = window_start + timedelta(days=rng.randint(0, args.window_days - 1))
         row = {"transaction_id": new_txn_id(), "transaction_code": "B1", "response_status": "P",
                "pharmacy_npi": rng.choice(pharmacies)["npi"], "rx_number": f"{rng.randint(1000000, 9999999)}",
                "fill_number": str(rng.choice([0, 0, 1, 2, 3])), "date_of_service": dos.isoformat(),
@@ -297,7 +364,19 @@ def main():
         if not prev:
             raise SystemExit("--late-reversals needs an earlier load; generate that load first")
         with (prev[-1] / "claims.csv").open() as f:
-            earlier = [r for r in csv.DictReader(f) if r["transaction_code"] == "B1" and r["response_status"] == "P"]
+            prev_rows = list(csv.DictReader(f))
+        prev_load = prev[-1].name.split("=")[1]
+        fk = lambda r: (r["pharmacy_npi"], r["rx_number"], r["fill_number"], r["date_of_service"])
+        touched = {fk(r) for r in prev_rows if r["transaction_code"] != "B1"}
+        known_ndcs = {d["ndc11"] for d in drugs}  # skip fills already reversed or rebilled
+        earlier = list({r["transaction_id"]: r for r in prev_rows
+                        if r["transaction_code"] == "B1" and r["response_status"] == "P" and fk(r) not in touched
+                        and r["days_supply"] in ("28", "30", "90") and r["date_of_service"] <= prev_load
+                        # keep "one defect per row": skip fills that already carry another injected defect
+                        and r["ndc"] in known_ndcs and not r["ingredient_cost_paid"].startswith("$")
+                        and r["cardholder_id"].startswith("RW1")
+                        and luhn_npi_check_digit(r["prescriber_npi"][:9]) == r["prescriber_npi"][9]}.values())
+        earlier.sort(key=lambda r: r["transaction_id"])
         for c in rng.sample(earlier, min(80, len(earlier))):
             r = dict(c, transaction_id=new_txn_id(), transaction_code="B2",
                      submitted_at=loaded_at.isoformat(), file_loaded_at=loaded_at.isoformat())
