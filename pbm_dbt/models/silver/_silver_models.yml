@@ -63,3 +63,10 @@ models :
     columns:
       - name: ndc11
         data_tests: [not_null, unique]
+
+  
+  - name: int_rebates
+    description: Rebate invoice lines, one row per quarter x NDC (latest file wins).
+    columns:
+      - name: invoiced_amount
+        data_tests: [not_null]

@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: dim_drug
+    description: One row per NDC11 plus a '-1' Unknown row.
+    columns:
+      - name: drug_sk
+        data_tests: [not_null, unique]
+
+  - name: dim_provider
+    description: One row per NPI plus a '-1' Unknown row. Role-playing (pharmacy and prescriber).
+    columns:
+      - name: provider_sk
+        data_tests: [not_null, unique]
+
+  - name: dim_member
+    description: SCD2 on business time. One row per member coverage version, plus '-1' unknown and '-2' no coverage on DOS.
+    columns:
+      - name: member_sk
+        data_tests: [not_null, unique]
+
+  
+  - name: fct_pharmacy_claim
+    description: One row per final paid fill. Point-in-time member version; every FK filled (special rows, never NULL).
+    columns:
+      - name: fill_key
+        data_tests: [not_null, unique]      # a fan-out from a bad join shows up here first
+      - name: member_sk
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_member'), field: member_sk}
+      - name: drug_sk
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_drug'), field: drug_sk}
+      - name: pharmacy_sk
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_provider'), field: provider_sk}
+      - name: prescriber_sk
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_provider'), field: provider_sk}
+    
+  
+  - name: fct_member_month
+    description: One row per member per month covered on the counting day (var member_month_counting_day, default 15).
+    columns:
+      - name: member_month_key
+        data_tests: [not_null, unique]
+      - name: member_sk
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_member'), field: member_sk}
+
+  
+  - name: mart_client_month_metrics
+    description: Client report, one row per client x plan x service month. Ratios computed from additive sums.
+
+  - name: rpt_rebate_reconciliation
+    description: Rebate units dispensed vs invoiced, per quarter x NDC, with trust flags (quarter_closed, claims_coverage_pct).
+    columns:
+      - name: recon_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['not invoiced', 'invoiced, no claims', 'matched (within 2%)', 'under-invoiced', 'over-invoiced (dispute risk)']

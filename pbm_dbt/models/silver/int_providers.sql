@@ -3,7 +3,7 @@
 SELECT
     npi,
     entity_type,
-    case entity_type when '1' then 'presciber'
+    case entity_type when '1' then 'prescriber'
     when '2' then 'pharmacy' end as provider_role,
     name_raw       as provider_name,
     taxonomy_code,
