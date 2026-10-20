@@ -1,0 +1,114 @@
+# Class 5: dbt UNIT tests (dbt >= 1.8).
+# Data tests (in _gold_models.yml / tests/) check the DATA after a build: "is fill_key unique in the real table?"
+# Unit tests check the LOGIC before a build, on tiny hand-made rows: "given these 5 fills, does my SQL assign
+# the right member_sk?" They catch edge cases that may not exist in today's data, and run in CI with no prod data.
+# Run: dbt test --select "test_type:unit"     (dbt build runs them automatically, BEFORE the model is built)
+
+unit_tests:
+
+  - name: ut_fct_claim_point_in_time_member_and_special_rows
+    description: >
+      Full-refresh logic. One member with two coverage versions, one member known but not covered on the DOS,
+      one orphan, one reversed fill. Each fill must land on the right member_sk; the reversed fill must vanish.
+    model: fct_pharmacy_claim
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: ref('int_pharmacy_fills')
+        rows:
+          - {fill_key: F1, fill_status: paid,     member_key: M1, date_of_service: 2026-09-10, ndc11: '00000000001', _processed_at: '2026-10-01 06:00:00'}
+          - {fill_key: F2, fill_status: paid,     member_key: M1, date_of_service: 2026-09-20, ndc11: '00000000001', _processed_at: '2026-10-01 06:00:00'}
+          - {fill_key: F3, fill_status: paid,     member_key: M2, date_of_service: 2026-09-20, ndc11: '99999999999', _processed_at: '2026-10-01 06:00:00'}
+          - {fill_key: F4, fill_status: paid,     member_key: M9, date_of_service: 2026-09-20, ndc11: '00000000001', _processed_at: '2026-10-01 06:00:00'}
+          - {fill_key: F5, fill_status: reversed, member_key: M1, date_of_service: 2026-09-20, ndc11: '00000000001', _processed_at: '2026-10-01 06:00:00'}
+      - input: ref('dim_member')
+        rows:
+          - {member_sk: M1_v1, member_key: M1, effective_from: 2026-01-01, effective_to: 2026-09-14}
+          - {member_sk: M1_v2, member_key: M1, effective_from: 2026-09-15, effective_to: 9999-12-31}
+          - {member_sk: M2_v1, member_key: M2, effective_from: 2026-01-01, effective_to: 2026-08-31}   # termed before the DOS
+      - input: ref('int_eligibility')
+        rows:
+          - {member_key: M1}
+          - {member_key: M2}
+      - input: ref('dim_drug')
+        rows:
+          - {drug_sk: D1, ndc11: '00000000001'}
+      - input: ref('dim_provider')
+        rows:
+          - {provider_sk: P1, npi: '1111111111', provider_role: pharmacy}
+      - input: ref('snap_member_eligibility')
+        rows: []
+    expect:
+      rows:
+        - {fill_key: F1, member_sk: M1_v1, drug_sk: D1, is_covered_on_dos: true}    # Sep 10 -> version 1
+        - {fill_key: F2, member_sk: M1_v2, drug_sk: D1, is_covered_on_dos: true}    # Sep 20 -> version 2 (plan change on Sep 15)
+        - {fill_key: F3, member_sk: '-2',  drug_sk: '-1', is_covered_on_dos: false} # known member, not covered; unknown NDC
+        - {fill_key: F4, member_sk: '-1',  drug_sk: D1, is_covered_on_dos: false}   # orphan: no eligibility at all
+        # F5 (reversed) is absent: the grain is paid fills only
+
+  - name: ut_fct_claim_incremental_picks_only_changed_fills
+    description: >
+      Incremental logic. Gold already holds F1 (unchanged), F2 (parked on -1, eligibility arrived since),
+      F3 (covered, but the member had a retro change). F4 is a brand-new fill. Expect F2, F3, F4 rebuilt; F1 untouched.
+    model: fct_pharmacy_claim
+    overrides:
+      macros:
+        is_incremental: true
+    given:
+      - input: this                                       # the fact as it was after the previous run
+        rows:
+          - {fill_key: F1, member_sk: M1_v1, drug_sk: D1, _silver_processed_at: '2026-10-02 06:00:00', _gold_loaded_at: '2026-10-02 07:00:00'}
+          - {fill_key: F2, member_sk: '-1',  drug_sk: D1, _silver_processed_at: '2026-10-02 06:00:00', _gold_loaded_at: '2026-10-02 07:00:00'}
+          - {fill_key: F3, member_sk: M3_v1, drug_sk: D1, _silver_processed_at: '2026-10-02 06:00:00', _gold_loaded_at: '2026-10-02 07:00:00'}
+      - input: ref('int_pharmacy_fills')
+        rows:
+          - {fill_key: F1, fill_status: paid, member_key: M1, date_of_service: 2026-09-10, ndc11: '00000000001', _processed_at: '2026-10-02 06:00:00'}
+          - {fill_key: F2, fill_status: paid, member_key: M2, date_of_service: 2026-09-20, ndc11: '00000000001', _processed_at: '2026-10-02 06:00:00'}
+          - {fill_key: F3, fill_status: paid, member_key: M3, date_of_service: 2026-09-20, ndc11: '00000000001', _processed_at: '2026-10-02 06:00:00'}
+          - {fill_key: F4, fill_status: paid, member_key: M1, date_of_service: 2026-10-02, ndc11: '00000000001', _processed_at: '2026-10-03 06:00:00'}
+      - input: ref('dim_member')
+        rows:
+          - {member_sk: M1_v1, member_key: M1, effective_from: 2026-01-01, effective_to: 9999-12-31}
+          - {member_sk: M2_v1, member_key: M2, effective_from: 2026-09-01, effective_to: 9999-12-31}   # late eligibility for the old orphan
+          - {member_sk: M3_v1, member_key: M3, effective_from: 2026-01-01, effective_to: 2026-09-15}   # retro-termed on Sep 15
+      - input: ref('int_eligibility')
+        rows:
+          - {member_key: M1}
+          - {member_key: M2}
+          - {member_key: M3}
+      - input: ref('snap_member_eligibility')
+        rows:
+          - {member_key: M3, dbt_valid_from: '2026-10-03 06:30:00'}   # new version AFTER gold's last load -> M3 is "touched"
+          - {member_key: M1, dbt_valid_from: '2026-01-01 00:00:00'}   # old version -> M1 is not touched
+      - input: ref('dim_drug')
+        rows:
+          - {drug_sk: D1, ndc11: '00000000001'}
+      - input: ref('dim_provider')
+        rows: []
+    expect:
+      rows:
+        - {fill_key: F2, member_sk: M2_v1}   # (b) late-arriving dimension resolved
+        - {fill_key: F3, member_sk: '-2'}    # (c) retro termination: the fill is no longer covered on its DOS
+        - {fill_key: F4, member_sk: M1_v1}   # (a) new fill past the watermark
+
+  - name: ut_mart_pmpm_is_null_not_error_when_no_member_months
+    description: >
+      Edge case that a data test can't easily stage: claims with no attributable member land in UNATTRIBUTED,
+      which has 0 member months. PMPM must be NULL (nullif), not a divide-by-zero error or infinity.
+    model: mart_client_month_metrics
+    given:
+      - input: ref('fct_pharmacy_claim')
+        rows:
+          - {fill_key: F1, member_sk: '-1', drug_sk: D1, member_key: M9, date_of_service: 2026-09-10, service_month: 2026-09-01, adjusted_rx_count: 1, gross_cost: 12.30, patient_pay_amount: 10.00, plan_paid_amount: 2.30}
+      - input: ref('dim_member')
+        rows:
+          - {member_sk: '-1', member_key: null, client_id: null, plan_id: null}
+      - input: ref('dim_drug')
+        rows:
+          - {drug_sk: D1, is_generic: true, is_specialty: false}
+      - input: ref('fct_member_month')
+        rows: []
+    expect:
+      rows:
+        - {client_id: UNATTRIBUTED, plan_id: UNATTRIBUTED, member_months: 0, paid_fills: 1, plan_paid: 2.30, plan_paid_pmpm: null, generic_dispensing_rate: 1.0000}

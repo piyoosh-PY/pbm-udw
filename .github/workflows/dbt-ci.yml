@@ -1,0 +1,72 @@
+# Class 5: CI for the warehouse. Every pull request rebuilds the whole project from scratch on fresh synthetic data
+# and runs every unit test + data test. A red check blocks the merge, so a broken model never reaches main.
+#
+# Why this works without secrets: DuckDB is a file, and the generator is deterministic (--seed), so CI can
+# recreate the exact same "raw landing zone" every time. At work this job would instead point dbt at a CI schema
+# in Snowflake/Athena and use SLIM CI (see the bottom of this file).
+name: dbt CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:            # "Run workflow" button in the Actions tab
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PBM_DUCKDB_PATH: ${{ github.workspace }}/warehouse/pbm_ci.duckdb
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dbt
+        run: pip install -r requirements.txt
+
+      - name: Generate the raw landing zone (same loads as Classes 1-5)
+        run: |
+          python generator/generate_pbm_data.py --load-date 2026-09-30
+          python generator/generate_pbm_data.py --load-date 2026-10-01 --late-reversals --claims 3000 --window-days 3
+          python generator/generate_pbm_data.py --load-date 2026-10-02 --late-reversals --claims 3000 --window-days 3
+          python generator/generate_pbm_data.py --load-date 2026-10-03 --late-reversals --claims 3000 --window-days 3
+          mkdir -p warehouse
+
+      - name: dbt parse (catches YAML / Jinja / ref errors in seconds)
+        working-directory: pbm_dbt
+        run: dbt parse --profiles-dir .
+
+      - name: dbt build from scratch (models + snapshots + data tests, in DAG order)
+        working-directory: pbm_dbt
+        # unit tests are excluded on this first pass: a unit test on an INCREMENTAL model reads the column types of
+        # the model's own table ({{ this }}), which does not exist yet in a brand-new database
+        run: dbt build --profiles-dir . --full-refresh --exclude "test_type:unit"
+
+      - name: Unit tests (logic on hand-made rows)
+        working-directory: pbm_dbt
+        run: dbt test --profiles-dir . --select "test_type:unit"
+
+      - name: Incremental run on top (proves the incremental path builds and passes every test too)
+        working-directory: pbm_dbt
+        run: dbt build --profiles-dir .
+
+      - name: Keep manifest + run results (state for slim CI, debugging)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-target
+          path: |
+            pbm_dbt/target/manifest.json
+            pbm_dbt/target/run_results.json
+
+# SLIM CI (what you'd say in an interview / do on a big project):
+#   1. Production job uploads its manifest.json after every deploy.
+#   2. The PR job downloads it to ./prod-state and runs ONLY what changed plus everything downstream:
+#        dbt build --select state:modified+ --defer --state ./prod-state
+#      --defer: unchanged parents are read from PRODUCTION instead of being rebuilt in the CI schema.
+#   Result: a PR touching one model runs ~5 models, not 500. Saves time and warehouse credits.

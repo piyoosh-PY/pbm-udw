@@ -22,8 +22,8 @@ raw files (S3 / local landing)
 | 2 | Silver: cleaning dirty data | Data quality types, dedup strategies, quarantine vs drop, contracts | Reversal netting (B1/B2/B3), NDC 10 to 11, row_number dedup, NPI check digit, generic + singular tests, severity | done (2026-10-17) |
 | 3 | Incremental + history | Full vs incremental, merge / append / delete+insert, late data, CDC, SCD1 vs SCD2 | Incremental claims with lookback, simulated change feed, eligibility snapshots, point-in-time joins | done (2026-10-17) |
 | 4 | Gold: dimensional model + metrics | Grain, star schema, conformed dims, surrogate keys, semantic layer | dim_member, dim_drug, fct_pharmacy_claim, member-month spine, PMPM, generic rate, rebate reconciliation | done (2026-10-18) |
-| 5 | Test suite + CI + orchestration | Test pyramid for data, unit vs data tests, slim CI, orchestrator design | dbt unit tests, contracts, pytest, GitHub Actions CI, Dagster with retries and backfills | not started |
-| 6 | AWS integration + production | S3 lake, Glue, Athena, Lambda, Step Functions, IAM, cost, monitoring | S3 landing, Lambda on file arrival, Glue catalog, dbt on Athena, backfill runbook, mock interview | not started |
+| 5 | Test suite + CI + orchestration | Test pyramid for data, unit vs data tests, contracts, slim CI, orchestrator design | Incremental gold fact (3 change triggers + delete path), gold mart snapshot (restatements), dbt unit tests, custom generic + threshold tests, contract, GitHub Actions CI | crash version done (2026-10-19); Dagster + pytest deep dive later |
+| 6 | AWS integration + production | S3 lake, Glue, Athena, Lambda, Step Functions, IAM, cost, monitoring | S3 landing, Lambda on file arrival, Glue catalog, dbt on Athena, backfill runbook, mock interview | theory crash notes in class-05 (2026-10-19); hands-on later |
 
 Class notes (theory, commands, results, 30-second interview answers) go in `notes/class-NN-<slug>.md`.
 
