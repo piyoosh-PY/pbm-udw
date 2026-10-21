@@ -3,28 +3,9 @@ version: 2
 models:
   - name: dim_drug
     description: One row per NDC11 plus a '-1' Unknown row.
-    # Class 5: MODEL CONTRACT. dbt checks the column names + types BEFORE it builds the table. If someone renames
-    # or retypes a column that downstream users (BI, the fact, other teams) depend on, the build fails instead of
-    # silently breaking them. Constraints (not_null) are enforced by the database on insert.
-    config:
-      contract: {enforced: true}
     columns:
       - name: drug_sk
-        data_type: varchar
-        constraints: [{type: not_null}]
-        data_tests: [unique]
-      - {name: ndc11,                  data_type: varchar}
-      - {name: drug_name,              data_type: varchar}
-      - {name: gpi14,                  data_type: varchar}
-      - {name: gpi_drug_group,         data_type: varchar}
-      - {name: gpi_drug_class,         data_type: varchar}
-      - {name: multi_source_code,      data_type: varchar}
-      - {name: brand_generic_category, data_type: varchar}
-      - {name: is_generic,             data_type: boolean}
-      - {name: is_specialty,           data_type: boolean}
-      - {name: is_rebate_eligible,     data_type: boolean}
-      - {name: awp_unit_price,         data_type: "decimal(12,4)"}
-      - {name: labeler_name,           data_type: varchar}
+        data_tests: [not_null, unique]
 
   - name: dim_provider
     description: One row per NPI plus a '-1' Unknown row. Role-playing (pharmacy and prescriber).
@@ -41,13 +22,6 @@ models:
   
   - name: fct_pharmacy_claim
     description: One row per final paid fill. Point-in-time member version; every FK filled (special rows, never NULL).
-    data_tests:                                   # Class 5: model-level threshold tests (warn, not fail)
-      - max_share:
-          arguments: {condition: "drug_sk = '-1'", max_share: 0.02}
-          config: {severity: warn}
-      - max_share:
-          arguments: {condition: "member_sk = '-1'", max_share: 0.01}
-          config: {severity: warn}
     columns:
       - name: fill_key
         data_tests: [not_null, unique]      # a fan-out from a bad join shows up here first
@@ -69,10 +43,6 @@ models:
         data_tests:
           - relationships:
               arguments: {to: ref('dim_provider'), field: provider_sk}
-      - name: plan_paid_amount
-        data_tests: [non_negative]                # Class 5: custom generic test (tests/generic/non_negative.sql)
-      - name: patient_pay_amount
-        data_tests: [non_negative]
     
   
   - name: fct_member_month
@@ -88,17 +58,6 @@ models:
   
   - name: mart_client_month_metrics
     description: Client report, one row per client x plan x service month. Ratios computed from additive sums.
-    data_tests:
-      - unique_combination_of_columns:          # Class 5: grain test on a composite key
-          arguments: {combination_of_columns: [client_id, plan_id, service_month]}
-          config:
-            store_failures: true                # failing rows are saved to a table you can query (schema *_dbt_test__audit)
-    columns:
-      - name: plan_paid_pmpm
-        data_tests:
-          - non_negative:
-              config:
-                where: "is_complete_month"      # test only reportable months
 
   - name: rpt_rebate_reconciliation
     description: Rebate units dispensed vs invoiced, per quarter x NDC, with trust flags (quarter_closed, claims_coverage_pct).

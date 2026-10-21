@@ -28,30 +28,21 @@ dated as (
             else greatest(maintenance_effective_date, coverage_start_date)
         end                                                    as effective_from
     from versions
-),
-
-spanned as (
-    select
-        member_key,
-        version_number,
-        client_id,
-        group_id,
-        plan_id,
-        maintenance_type_code,
-        effective_from,
-        least(
-            coalesce(lead(effective_from) over (partition by member_key order by version_number) - 1, date '9999-12-31'),
-            coalesce(coverage_end_date, date '9999-12-31')
-        )                                                      as effective_to,
-        known_from,
-        known_to,
-        known_to = timestamp '9999-12-31'                      as is_current_version
-    from dated
 )
 
--- Class 5 fix (found by the Oct 3 load): a brand-new add (021) followed by a RETRO change (001) dated before
--- the coverage start makes v2 begin on the same day as v1, so v1 collapses to an empty span (effective_to < effective_from).
--- That version was never in force for a single day: drop it. Without this, dim_member got two rows with the same
--- member_sk (md5 of member_key | effective_from) and the unique test failed.
-select * from spanned
-where effective_to >= effective_from
+select
+    member_key,
+    version_number,
+    client_id,
+    group_id,
+    plan_id,
+    maintenance_type_code,
+    effective_from,
+    least(
+        coalesce(lead(effective_from) over (partition by member_key order by version_number) - 1, date '9999-12-31'),
+        coalesce(coverage_end_date, date '9999-12-31')
+    )                                                          as effective_to,
+    known_from,
+    known_to,
+    known_to = timestamp '9999-12-31'                          as is_current_version
+from dated
