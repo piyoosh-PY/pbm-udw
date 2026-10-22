@@ -1,0 +1,16 @@
+snapshots:
+    - name : snap_client_month_metrics
+      relation : ref ('mart_client_month_metrics')
+      description : >
+          Restatement history of the client report. The mart is rebuilt every run, so a published month can change
+          when late claims / reversals / retro eligibility arrive. This keeps every published version.
+          dbt_valid_from / dbt_valid_to = when the WAREHOUSE published that number (system time).
+      
+      config: 
+        schema : snapshots 
+        unique_key : [client_id,plan_id,service_month]
+        strategy : check
+        check_cols : [member_months,paid_fills,plan_paid,plan_paid_pmpm, generic_dispensing_rate,is_complete_month]
+        hard_deletes : invalidate
+        dbt_valid_to_current : "cast('9999-12-31' as timestamp)"
+        
