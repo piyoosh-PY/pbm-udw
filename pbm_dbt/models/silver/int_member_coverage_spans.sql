@@ -28,8 +28,8 @@ dated as (
             else greatest(maintenance_effective_date, coverage_start_date)
         end                                                    as effective_from
     from versions
-)
-
+),
+spanned as (
 select
     member_key,
     version_number,
@@ -46,3 +46,6 @@ select
     known_to,
     known_to = timestamp '9999-12-31'                          as is_current_version
 from dated
+)
+select * from spanned
+where effective_to >= effective_from

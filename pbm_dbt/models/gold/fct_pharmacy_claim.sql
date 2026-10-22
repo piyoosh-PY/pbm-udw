@@ -2,9 +2,38 @@
 -- Point-in-time join: the member version whose coverage contains the date of service, so a plan change
 -- or a retro-termination never rewrites which plan paid a past fill.
 -- Every foreign key is filled: unmatched rows point at special dimension rows (-1 / -2), never NULL.
+
+{{
+    config(
+        materialized='incremental',
+        incremental_strategy='delete+insert',
+        unique_key='fill_key',
+        on_schema_change='fail',
+        post_hook=[
+            "delete from {{ this }} where fill_key in (select fill_key from {{ ref('int_pharmacy_fills') }} where fill_status <> 'paid')"
+        ]
+    )
+}}
+
+-- depends_on: {{ ref('snap_member_eligibility') }}
+-- (dbt finds refs at PARSE time, when is_incremental() is false, so a ref used only inside the if-block needs this hint)
+
 with fills as (
     select * from {{ ref('int_pharmacy_fills') }}
     where fill_status = 'paid'
+    {% if is_incremental() %}
+      and (
+            -- (a) watermark: silver touched it after the newest silver timestamp Gold already holds
+            _processed_at > (select max(_silver_processed_at) from {{ this }})
+            -- (b) late-arriving dimension: retry fills parked on Unknown / No-coverage rows
+         or fill_key in (select fill_key from {{ this }} where member_sk in ('-1', '-2') or drug_sk = '-1')
+     -- (c) retro eligibility: members with a new snapshot version since Gold's last load
+         or member_key in (
+                select member_key from {{ ref('snap_member_eligibility') }}
+                where dbt_valid_from > (select max(_gold_loaded_at) from {{ this }})
+            )
+      )
+    {% endif %}
 ),
 
 member_versions as (
@@ -15,6 +44,7 @@ member_versions as (
 known_members as (       -- every member with ANY eligibility record, including never-effective / invalid spans
     select distinct member_key from {{ ref('int_eligibility') }}
     --  select distinct member_key from member_versions
+
 )
 
 select
@@ -54,7 +84,12 @@ select
     mv.member_sk is not null                                             as is_covered_on_dos,
     f.dq_orphan_member,
     f.dq_ndc_not_in_reference,
-    f.dq_invalid_prescriber_npi
+    f.dq_invalid_prescriber_npi,
+        f.dq_invalid_prescriber_npi,
+
+    -- audit columns: drive the watermark and answer "when did gold learn this?"
+    f._processed_at                                                      as _silver_processed_at,
+    current_timestamp                                                    as _gold_loaded_at
 
 from fills f
 left join member_versions mv
