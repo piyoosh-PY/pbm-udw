@@ -1,0 +1,86 @@
+unit_tests:
+
+  - name: ut_fct_claim_point_in_time_member_and_special_rows
+    description: >
+      One member with two coverage versions, one member known but not covered on the DOS, one orphan,
+      one reversed fill. Each fill must land on the right member_sk; the reversed fill must vanish.
+    model: fct_pharmacy_claim
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: ref('int_pharmacy_fills')
+        rows:
+          - {fill_key: F1, fill_status: paid,     member_key: M1, date_of_service: 2026-09-10, ndc11: '00000000001', _processed_at: '2026-10-01 06:00:00'}
+          - {fill_key: F2, fill_status: paid,     member_key: M1, date_of_service: 2026-09-20, ndc11: '00000000001', _processed_at: '2026-10-01 06:00:00'}
+          - {fill_key: F3, fill_status: paid,     member_key: M2, date_of_service: 2026-09-20, ndc11: '99999999999', _processed_at: '2026-10-01 06:00:00'}
+          - {fill_key: F4, fill_status: paid,     member_key: M9, date_of_service: 2026-09-20, ndc11: '00000000001', _processed_at: '2026-10-01 06:00:00'}
+          - {fill_key: F5, fill_status: reversed, member_key: M1, date_of_service: 2026-09-20, ndc11: '00000000001', _processed_at: '2026-10-01 06:00:00'}
+      - input: ref('dim_member')
+        rows:
+          - {member_sk: M1_v1, member_key: M1, effective_from: 2026-01-01, effective_to: 2026-09-14}
+          - {member_sk: M1_v2, member_key: M1, effective_from: 2026-09-15, effective_to: 9999-12-31}
+          - {member_sk: M2_v1, member_key: M2, effective_from: 2026-01-01, effective_to: 2026-08-31}
+      - input: ref('int_eligibility')
+        rows:
+          - {member_key: M1}
+          - {member_key: M2}
+      - input: ref('dim_drug')
+        rows:
+          - {drug_sk: D1, ndc11: '00000000001'}
+      - input: ref('dim_provider')
+        rows:
+          - {provider_sk: P1, npi: '1111111111', provider_role: pharmacy}
+      - input: ref('snap_member_eligibility')
+        rows: []
+    expect:
+      rows:
+        - {fill_key: F1, member_sk: M1_v1, drug_sk: D1,   is_covered_on_dos: true}
+        - {fill_key: F2, member_sk: M1_v2, drug_sk: D1,   is_covered_on_dos: true}
+        - {fill_key: F3, member_sk: '-2',  drug_sk: '-1', is_covered_on_dos: false}
+        - {fill_key: F4, member_sk: '-1',  drug_sk: D1,   is_covered_on_dos: false}
+
+  - name: ut_fct_claim_incremental_picks_only_changed_fills
+    description: >
+      Gold already holds F1 (unchanged), F2 (parked on -1; eligibility arrived since), F3 (covered, but the member
+      had a retro change). F4 is a brand-new fill. Expect F2, F3, F4 rebuilt; F1 untouched.
+    model: fct_pharmacy_claim
+    overrides:
+      macros:
+        is_incremental: true
+    given:
+      - input: this
+        rows:
+          - {fill_key: F1, member_sk: M1_v1, drug_sk: D1, _silver_processed_at: '2026-10-02 06:00:00', _gold_loaded_at: '2026-10-02 07:00:00'}
+          - {fill_key: F2, member_sk: '-1',  drug_sk: D1, _silver_processed_at: '2026-10-02 06:00:00', _gold_loaded_at: '2026-10-02 07:00:00'}
+          - {fill_key: F3, member_sk: M3_v1, drug_sk: D1, _silver_processed_at: '2026-10-02 06:00:00', _gold_loaded_at: '2026-10-02 07:00:00'}
+      - input: ref('int_pharmacy_fills')
+        rows:
+          - {fill_key: F1, fill_status: paid, member_key: M1, date_of_service: 2026-09-10, ndc11: '00000000001', _processed_at: '2026-10-02 06:00:00'}
+          - {fill_key: F2, fill_status: paid, member_key: M2, date_of_service: 2026-09-20, ndc11: '00000000001', _processed_at: '2026-10-02 06:00:00'}
+          - {fill_key: F3, fill_status: paid, member_key: M3, date_of_service: 2026-09-20, ndc11: '00000000001', _processed_at: '2026-10-02 06:00:00'}
+          - {fill_key: F4, fill_status: paid, member_key: M1, date_of_service: 2026-10-02, ndc11: '00000000001', _processed_at: '2026-10-03 06:00:00'}
+      - input: ref('dim_member')
+        rows:
+          - {member_sk: M1_v1, member_key: M1, effective_from: 2026-01-01, effective_to: 9999-12-31}
+          - {member_sk: M2_v1, member_key: M2, effective_from: 2026-09-01, effective_to: 9999-12-31}
+          - {member_sk: M3_v1, member_key: M3, effective_from: 2026-01-01, effective_to: 2026-09-15}
+      - input: ref('int_eligibility')
+        rows:
+          - {member_key: M1}
+          - {member_key: M2}
+          - {member_key: M3}
+      - input: ref('snap_member_eligibility')
+        rows:
+          - {member_key: M3, dbt_valid_from: '2026-10-03 06:30:00'}
+          - {member_key: M1, dbt_valid_from: '2026-01-01 00:00:00'}
+      - input: ref('dim_drug')
+        rows:
+          - {drug_sk: D1, ndc11: '00000000001'}
+      - input: ref('dim_provider')
+        rows: []
+    expect:
+      rows:
+        - {fill_key: F2, member_sk: M2_v1}
+        - {fill_key: F3, member_sk: '-2'}
+        - {fill_key: F4, member_sk: M1_v1}

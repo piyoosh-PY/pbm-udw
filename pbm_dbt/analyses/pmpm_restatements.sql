@@ -6,7 +6,7 @@ with versions as (
     dbt_valid_from,
     row_number() over (partition by client_id, plan_id, service_month order by dbt_valid_from) as version_no,
     count(*)     over (partition by client_id, plan_id, service_month)                         as versions
-    from {{ ref('snap_client_month_metrics') }}
+     from {{ ref('snap_client_month_metrics') }}
 
 )
 select
