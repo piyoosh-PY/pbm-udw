@@ -5,6 +5,14 @@ Answer rules: **make the point, one example or number, stop** (my weak spot is o
 For "how would you build X": **Question -> Grain -> Sources -> Layers -> Metrics -> Tests -> Consumers.**
 For tools I haven't used: "I haven't used X directly; the closest I've done is Y; here's how I'd approach it."
 
+**Delivery (my known weak spot: nerves → rushing, over-answering, underselling).** Sticky note: *Slow. Headline. Stop.*
+- Buy 3 seconds: "Good question, let me think of the best example" / repeat the question back.
+- Headline (one-sentence answer) → example (one story, one number) → stop ("happy to go deeper").
+- 5 stories in 30-second + 2-minute versions: Elevance attribution/reconciliation · PIMS Assistant + MCP · incremental fact + late reversals · empty-span key bug · restatement snapshot.
+- Say "I" with numbers; self-ratings = number + one line of evidence (rating low sounds less able, not humble).
+- Two slow breaths before (4 in, 6 out); water for natural pauses; end answers by stopping.
+- Practice out loud: phone recordings, 10-minute daily reps with Claude, intro + 2 stories timed before each interview.
+
 ---
 
 ## A. Rightway, 1st round with Aditya (Director), 2026-10-23
