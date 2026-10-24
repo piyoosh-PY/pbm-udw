@@ -10,8 +10,11 @@ Start here, then follow a class or jump to a topic.
 | 2 | [Silver: cleaning dirty data](class-02-silver.md) | Oct 17 | cleaning macros, dedup, quarantine, reversal netting, defect-coverage tests | done |
 | 3 | [Incremental + history (SCD2)](class-03-incremental-scd2.md) | Oct 17 | toy incremental lab, incremental claims + fills, tombstones, eligibility snapshot, coverage spans | done |
 | 4 | [Gold: dimensional model + metrics](class-04-gold.md) | Oct 18 | dims (SCD2 member), point-in-time fact, member months, PMPM / GDR mart, rebate reconciliation, tie-out + semantic tests | done |
-| 5 | [Incremental gold, gold snapshot, unit tests](class-05-incremental-gold-snapshot-tests.md) | Oct 21–22 | incremental fact (3 triggers + delete path), spans bug fix, mart snapshot (restatements), unit tests | Part 1 mostly done; generic tests, contract, CI, pytest, Dagster pending (reference on branch `class5-reference`) |
-| 6 | AWS integration + production | — | S3 landing, Lambda trigger, Glue catalog, dbt on Athena | not started (theory crash notes on `class5-reference`) |
+| 5 | [Incremental gold, gold snapshot, unit tests](class-05-incremental-gold-snapshot-tests.md) | Oct 21–22 | incremental fact (3 triggers + delete path), spans bug fix, mart snapshot (restatements), unit tests | Part 1 mostly done; generic tests, contract, CI, pytest, Dagster, **Airflow + Cosmos** pending (reference on branch `class5-reference`) |
+| 6 | AWS integration + production | — | S3 landing, Lambda trigger, Glue catalog, dbt on Athena; + BigQuery (dbt-bigquery, partitioning / clustering), Terraform basics | not started (theory crash notes on `class5-reference`) |
+| 7 | Spark + streaming | — | PySpark reversal netting, Redpanda / Kafka claim events with idempotent upserts | not started |
+| 8 | Interview lab: SQL, modeling, system design | ongoing | timed SQL drills, weekly modeling case, 6 data system design prompts, mock loops; answers go in [interview-question-bank.md](interview-question-bank.md) | ongoing |
+| 9 | Healthcare domain depth + AI edge | — | 835 walkthrough, HEDIS / HCC mini-mart, PIMS Assistant case study, LLM evals for data tasks | not started |
 
 ## Reference docs
 | Doc | Covers |
