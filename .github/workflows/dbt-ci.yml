@@ -32,11 +32,13 @@ jobs:
       - name: Replay 5 daily loads (initial load + 4 incremental days)
         run: |
           set -e
-          # Day 1: initial full load, then a full build
+          # Day 1: initial load. Build everything except unit tests first, because unit tests
+          # read column types from existing tables, and on a fresh warehouse nothing exists yet.
           python ../generator/generate_pbm_data.py --load-date 2026-09-30 --seed 42
-          dbt build --profiles-dir . --fail-fast
+          dbt build --profiles-dir . --fail-fast --exclude-resource-type unit_test
+          dbt test  --profiles-dir . --select "test_type:unit"
 
-          # Days 2-5: small daily files with late reversals, each followed by an incremental build
+          # Days 2-5: tables exist now, so a normal build (unit tests included) works
           for d in 2026-10-01 2026-10-02 2026-10-03 2026-10-04; do
             echo "=== Load $d ==="
             python ../generator/generate_pbm_data.py --load-date $d --seed 42 --late-reversals --claims 3000 --window-days 3
