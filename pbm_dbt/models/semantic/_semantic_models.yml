@@ -1,0 +1,93 @@
+version: 2
+
+semantic_models:
+  - name: client_month_metrics
+    description: >
+      Client report at its grain: one row per client x plan x service month.
+      Measures are additive sums; every ratio is a metric that re-divides sums at query time.
+    model: ref('mart_client_month_metrics')
+    defaults:
+      agg_time_dimension: service_month
+
+    entities:
+      - name: client_plan_month
+        type: primary
+        expr: "client_id || '|' || plan_id || '|' || cast(service_month as varchar)"
+
+    dimensions:
+      - name: service_month
+        type: time
+        type_params:
+          time_granularity: month
+      - name: client_id
+        type: categorical
+      - name: plan_id
+        type: categorical
+      - name: is_complete_month
+        type: categorical
+
+    measures:
+      - name: plan_paid
+        agg: sum
+      - name: member_months
+        agg: sum
+      - name: generic_fills
+        agg: sum
+      - name: fills_with_known_drug
+        agg: sum
+
+metrics:
+  # simple metrics: the governed building blocks
+  - name: total_plan_paid
+    label: Plan paid ($)
+    type: simple
+    type_params:
+      measure: plan_paid
+
+  - name: total_member_months
+    label: Member months
+    type: simple
+    type_params:
+      measure: member_months
+
+  - name: total_generic_fills
+    label: Generic fills
+    type: simple
+    type_params:
+      measure: generic_fills
+
+  - name: total_fills_with_known_drug
+    label: Fills with known drug
+    type: simple
+    type_params:
+      measure: fills_with_known_drug
+
+  # ratio metrics: one definition each, correct at any grain
+  - name: plan_paid_pmpm
+    label: Plan paid PMPM
+    description: Plan paid dollars per member month. Sum of plan paid / sum of member months, never an average of monthly PMPMs.
+    type: ratio
+    type_params:
+      numerator: total_plan_paid
+      denominator: total_member_months
+
+  - name: generic_dispensing_rate
+    label: Generic dispensing rate
+    description: Generic fills / fills with a known drug (fills with an unknown NDC are excluded from the denominator).
+    type: ratio
+    type_params:
+      numerator: total_generic_fills
+      denominator: total_fills_with_known_drug
+  
+  - name: plan_paid_pmpm_reportable
+    label: Plan paid PMPM (complete months only)
+    description: >
+      The client-facing PMPM. Same definition as plan_paid_pmpm, restricted to months the claims data
+      covers end to end, so a partially loaded month can never look like a cost drop.
+    type: ratio
+    type_params:
+      numerator: total_plan_paid
+      denominator: total_member_months
+    filter: |
+      {{ Dimension('client_plan_month__is_complete_month') }} = true
+  
