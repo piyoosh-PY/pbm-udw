@@ -1,0 +1,43 @@
+name: dbt CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:      # lets you run it by hand from the Actions tab
+
+jobs:
+  dbt-build:
+    runs-on:  ubuntu-latest
+    env:
+      PBM_DUCKDB_PATH: ${{ github.workspace }}/ci.duckdb
+    defaults:
+      run:
+        working-directory: pbm_dbt
+    
+    steps:
+      - name: Check out Code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-versions: "3.12"
+
+      - name: Install dbt
+        run: pip install -r ../requirements-ci.txt
+      
+      - name: Generate test data (deterministic seed)
+        run: python ../generator/generate_pbm_data.py --load-date 2026-09-30 --seed 42
+
+      - name: Parse (catches YAML and Jinja errors fast)
+        run: dbt parse --profiles-dir .
+
+      - name: Build models, snapshots and run all tests
+        run: dbt build --profiles-dir . --fail-fast
+      
+      - name: Upload dbt artifacts(manifest, run results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-target
+          path: pbm_dbt/target/*.json
