@@ -1,0 +1,53 @@
+name: dbt CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:      # lets you run it by hand from the Actions tab
+
+jobs:
+  dbt-build:
+    runs-on:  ubuntu-latest
+    env:
+      PBM_DUCKDB_PATH: ${{ github.workspace }}/ci.duckdb
+    defaults:
+      run:
+        working-directory: pbm_dbt
+    
+    steps:
+      - name: Check out Code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-versions: "3.12"
+
+      - name: Install dbt
+        run: pip install -r ../requirements-ci.txt
+      
+      - name: Parse (catches YAML and Jinja errors fast)
+        run: dbt parse --profiles-dir .
+
+      - name: Replay 5 daily loads (initial load + 4 incremental days)
+        run: |
+          set -e
+          # Day 1: initial load. Build everything except unit tests first, because unit tests
+          # read column types from existing tables, and on a fresh warehouse nothing exists yet.
+          python ../generator/generate_pbm_data.py --load-date 2026-09-30 --seed 42
+          dbt build --profiles-dir . --fail-fast --exclude-resource-type unit_test
+          dbt test  --profiles-dir . --select "test_type:unit"
+
+          # Days 2-5: tables exist now, so a normal build (unit tests included) works
+          for d in 2026-10-01 2026-10-02 2026-10-03 2026-10-04; do
+            echo "=== Load $d ==="
+            python ../generator/generate_pbm_data.py --load-date $d --seed 42 --late-reversals --claims 3000 --window-days 3
+            dbt build --profiles-dir . --fail-fast
+          done
+      
+      - name: Upload dbt artifacts(manifest, run results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-target
+          path: pbm_dbt/target/*.json
