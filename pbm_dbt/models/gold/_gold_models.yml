@@ -22,28 +22,85 @@ models:
   
   - name: fct_pharmacy_claim
     description: One row per final paid fill. Point-in-time member version; every FK filled (special rows, never NULL).
+    config:
+      contract:
+        enforced: true
     columns:
       - name: fill_key
+        data_type: varchar
+        constraints:
+          - type: not_null
         data_tests: [not_null, unique]      # a fan-out from a bad join shows up here first
       - name: member_sk
+        data_type: varchar
+        constraints:
+          - type: not_null
         data_tests:
-          - not_null
           - relationships:
               arguments: {to: ref('dim_member'), field: member_sk}
       - name: drug_sk
+        data_type: varchar
+        constraints:
+          - type: not_null
         data_tests:
-          - not_null
           - relationships:
               arguments: {to: ref('dim_drug'), field: drug_sk}
       - name: pharmacy_sk
+        data_type: varchar
         data_tests:
           - relationships:
               arguments: {to: ref('dim_provider'), field: provider_sk}
       - name: prescriber_sk
+        data_type: varchar
         data_tests:
           - relationships:
               arguments: {to: ref('dim_provider'), field: provider_sk}
-    
+      - name: date_of_service
+        data_type: date
+      - name: service_month
+        data_type: date
+      - name: member_key
+        data_type: varchar
+      - name: ndc11
+        data_type: varchar
+      - name: rx_number
+        data_type: varchar
+      - name: final_transaction_id
+        data_type: varchar
+      - name: final_transaction_code
+        data_type: varchar
+      - name: was_rebilled
+        data_type: boolean
+      - name: was_reversed
+        data_type: boolean
+      - name: quantity_dispensed
+        data_type: decimal(12,3)
+      - name: days_supply
+        data_type: integer
+      - name: adjusted_rx_count
+        data_type: integer
+      - name: ingredient_cost_paid
+        data_type: decimal(12,2)
+      - name: dispensing_fee_paid
+        data_type: decimal(12,2)
+      - name: gross_cost
+        data_type: decimal(13,2)
+      - name: patient_pay_amount
+        data_type: decimal(12,2)
+      - name: plan_paid_amount
+        data_type: decimal(12,2)
+      - name: is_covered_on_dos
+        data_type: boolean
+      - name: dq_orphan_member
+        data_type: boolean
+      - name: dq_ndc_not_in_reference
+        data_type: boolean
+      - name: dq_invalid_prescriber_npi
+        data_type: boolean
+      - name: _silver_processed_at
+        data_type: timestamp with time zone
+      - name: _gold_loaded_at
+        data_type: timestamp with time zone
   
   - name: fct_member_month
     description: One row per member per month covered on the counting day (var member_month_counting_day, default 15).
@@ -58,6 +115,30 @@ models:
   
   - name: mart_client_month_metrics
     description: Client report, one row per client x plan x service month. Ratios computed from additive sums.
+    data_tests:
+      - unique_combination:
+          arguments:
+            combinations_of_columns: ['client_id', 'plan_id', 'service_month']
+    columns:
+      - name: generic_dispensing_rate
+        data_tests:
+          - is_between:
+              arguments: {min_value: 0, max_value: 1}
+      - name: member_cost_share
+        data_tests:
+          - is_between:
+              arguments: {min_value: 0, max_value: 1}
+      - name: specialty_share_of_plan_paid
+        data_tests:
+          - is_between:
+              arguments: {min_value: 0, max_value: 1}
+      - name: plan_paid_pmpm
+        data_tests:
+          - is_between:
+              arguments: {min_value: 0, max_value: 5000}
+              config:
+                severity: warn
+
 
   - name: rpt_rebate_reconciliation
     description: Rebate units dispensed vs invoiced, per quarter x NDC, with trust flags (quarter_closed, claims_coverage_pct).

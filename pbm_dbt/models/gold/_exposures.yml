@@ -1,0 +1,18 @@
+version: 2
+
+exposures:
+  - name: client_monthly_pharmacy_report
+    label: Client Monthly Pharmacy Report
+    type: dashboard
+    maturity: high
+    url: https://example.com/powerbi/client-monthly-pharmacy
+    description: >
+      Monthly client report (Power BI): plan paid PMPM, generic dispensing rate,
+      specialty share and member cost share per client x plan x month.
+      Only months with is_complete_month = true are shown to clients.
+    depends_on:
+      - ref('mart_client_month_metrics')
+      - ref('rpt_rebate_reconciliation')
+    owner:
+      name: Piyoosh Kumar
+      email: piyoosh9935@gmail.com

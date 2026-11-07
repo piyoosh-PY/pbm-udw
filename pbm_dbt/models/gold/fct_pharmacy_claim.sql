@@ -85,7 +85,6 @@ select
     f.dq_orphan_member,
     f.dq_ndc_not_in_reference,
     f.dq_invalid_prescriber_npi,
-        f.dq_invalid_prescriber_npi,
 
     -- audit columns: drive the watermark and answer "when did gold learn this?"
     f._processed_at                                                      as _silver_processed_at,
