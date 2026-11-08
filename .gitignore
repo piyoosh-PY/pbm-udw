@@ -6,6 +6,7 @@ __pycache__/
 
 # dbt
 target/
+prod-artifacts/
 dbt_packages/
 logs/
 .user.yml
@@ -18,3 +19,10 @@ data/raw/
 # Secrets and OS
 .env
 .DS_Store
+
+# Airflow local runtime (metadata DB, config, logs)
+airflow/airflow.db
+airflow/airflow.cfg
+airflow/logs/
+airflow/*.pid
+.venv-airflow/
