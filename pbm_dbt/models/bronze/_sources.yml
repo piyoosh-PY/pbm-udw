@@ -15,6 +15,11 @@ sources:
           - name: transaction_id
             data_tests: [not_null]
       - name: eligibility
+        loaded_at_field: "cast(file_loaded_at as timestamp)"
+        config:
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 72, period: hour}   # 834 files can arrive a day late; claims can't
       - name: drug_reference
       - name: providers
-      - name: rebates
+      - name: rebates                                  # quarterly invoices: freshness would always alarm
